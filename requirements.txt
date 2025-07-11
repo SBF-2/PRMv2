@@ -1,0 +1,9 @@
+numpy
+matplotlib
+pandas
+gymnasium[atari]
+ale-py
+Minari
+h5py
+opencv-python
+minari[hf]

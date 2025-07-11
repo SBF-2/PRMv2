@@ -329,12 +329,44 @@ class D4RLSequentialDataset(data.Dataset):
 # Example usage
 if __name__ == "__main__":
     # Define games to use
-    game_list = [
-        'atari/alien/expert-v0'
-    ] 
+    all_game_list = [
+       "atari/jamesbond/expert-v0", "atari/pitfall/expert-v0", 
+        "atari/robotank/expert-v0", "atari/alien/expert-v0", 
+        "atari/phoenix/expert-v0", "atari/choppercommand/expert-v0", 
+        "atari/centipede/expert-v0", "atari/krull/expert-v0",
+        "atari/frostbite/expert-v0", "atari/breakout/expert-v0", 
+        "atari/kungfumaster/expert-v0", "atari/demonattack/expert-v0", 
+        "atari/fishingderby/expert-v0", "atari/boxing/expert-v0", 
+        "atari/riverraid/expert-v0", "atari/kangaroo/expert-v0",
+        "atari/atlantis/expert-v0", "atari/gopher/expert-v0", 
+        "atari/amidar/expert-v0", "atari/bankheist/expert-v0", 
+        "atari/asteroids/expert-v0", "atari/videopinball/expert-v0", 
+        "atari/asterix/expert-v0", "atari/wizardofwor/expert-v0", 
+        "atari/timepilot/expert-v0", "atari/crazyclimber/expert-v0", 
+        "atari/mspacman/expert-v0", "atari/tutankham/expert-v0", 
+        "atari/skiing/expert-v0", "atari/enduro/expert-v0", 
+        "atari/zaxxon/expert-v0", "atari/pong/expert-v0", 
+        "atari/venture/expert-v0", "atari/roadrunner/expert-v0", 
+        "atari/freeway/expert-v0", "atari/battlezone/expert-v0", 
+        "atari/solaris/expert-v0", "atari/icehockey/expert-v0", 
+        "atari/yarsrevenge/expert-v0", "atari/doubledunk/expert-v0", 
+        "atari/spaceinvaders/expert-v0", "atari/beamrider/expert-v0", 
+        "atari/namethisgame/expert-v0", "atari/upndown/expert-v0", 
+        "atari/tennis/expert-v0", "atari/hero/expert-v0", 
+        "atari/qbert/expert-v0", "atari/surround/expert-v0", 
+        "atari/berzerk/expert-v0", "atari/assault/expert-v0", 
+        "atari/defender/expert-v0", "atari/bowling/expert-v0", 
+        "atari/montezumarevenge/expert-v0", "atari/stargunner/expert-v0", 
+        "atari/privateeye/expert-v0", "atari/seaquest/expert-v0", "atari/gravitar/expert-v0"]
+    train_game_list = all_game_list[:30]  # Use first 30 games for training
     # Create dataset
+    num_steps = 32  # Number of steps in each sequence
+    overlap=16,
+    num_seq_per_game=100, 
+    save_path = f'../Data/dataset_games{len(train_game_list)}_per{num_seq_per_game}_seq{num_steps}.h5'
+
     dataset = D4RLSequentialDataset(
-        game_list=game_list,
+        game_list=train_game_list,
         num_steps=32,
         overlap=16,
         num_seq_per_game=100,      # Create dataset, extract 1000 sequences per game
