@@ -5,10 +5,11 @@ import h5py
 import pickle
 import random
 import os
-from typing import List, Dict, Tuple, Optional, Union
+from typing import List, Dict, Tuple, Optional, Union, Any
 from collections import defaultdict
 import minari
 import cv2
+from torch.utils.data import Dataset
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -20,7 +21,7 @@ class D4RLSequentialDataset(data.Dataset):
     """
     
     def __init__(self, 
-                 game_list: List[str], 
+                 game_list: Optional[List[str]] = None,  # 改为可选参数
                  num_steps: int = 33,
                  overlap: int = 16,
                  frame_stack: int = 4,  # Number of frames to stack (4 for Atari)
@@ -30,7 +31,7 @@ class D4RLSequentialDataset(data.Dataset):
                  load_from_file: Optional[str] = None):
         """
         Args:
-            game_list: List of Minari dataset names
+            game_list: List of Minari dataset names (required when creating new dataset)
             num_steps: Number of consecutive steps in each sequence
             overlap: Step size for overlapping sequences (smaller = more overlap)
             frame_stack: Number of frames to stack for observation (4 for Atari)
@@ -38,7 +39,6 @@ class D4RLSequentialDataset(data.Dataset):
             save_path: Path to save processed dataset
             load_from_file: Path to load pre-processed dataset
         """
-        self.game_list = game_list
         self.num_steps = num_steps
         self.frame_stack = frame_stack
         self.overlap = overlap
@@ -47,13 +47,33 @@ class D4RLSequentialDataset(data.Dataset):
         self.normalize_obs = normalize_obs
         
         if load_from_file and os.path.exists(load_from_file):
+            # 从文件加载时，game_list会从文件中恢复
             self.load_dataset(load_from_file)
         else:
+            # 创建新数据集时，必须提供game_list
+            if game_list is None:
+                raise ValueError("game_list is required when creating a new dataset (load_from_file not provided)")
+            
+            self.game_list = game_list
             self.sequences = []
             self.game_indices = []
             self._build_dataset()
             if save_path:
                 self.save_dataset(save_path)
+    
+    @classmethod
+    def from_file(cls, filepath: str, **kwargs):
+        """
+        类方法：从文件加载数据集的推荐方式
+        
+        Args:
+            filepath: 数据集文件路径
+            **kwargs: 其他可选参数（如normalize_obs等）
+        
+        Returns:
+            D4RLSequentialDataset实例
+        """
+        return cls(load_from_file=filepath, **kwargs)
     
     def _build_dataset(self):
         """Build dataset by extracting sequences from Minari games"""
@@ -238,7 +258,8 @@ class D4RLSequentialDataset(data.Dataset):
             self.num_steps = f.attrs['num_steps']
             self.overlap = f.attrs.get('overlap', 1)  # Default to 1 if not saved
             self.frame_stack = f.attrs.get('frame_stack', 4)  # Default to 4 if not saved
-            self.game_list = [game for game in f.attrs['game_list']]
+            self.game_list = [game.decode('utf-8') if isinstance(game, bytes) else game 
+                             for game in f.attrs['game_list']]
             
             # Load game indices
             self.game_indices = list(f['game_indices'][:])
@@ -295,6 +316,7 @@ class D4RLSequentialDataset(data.Dataset):
         new_dataset.game_indices = new_game_indices
         new_dataset.num_seq_per_game = None
         new_dataset.save_path = save_path
+        new_dataset.normalize_obs = getattr(self, 'normalize_obs', True)
         
         if save_path:
             new_dataset.save_dataset(save_path)
@@ -325,7 +347,136 @@ class D4RLSequentialDataset(data.Dataset):
         
         return stats
 
+# class H5SequenceDataset(Dataset):
+#     """从 H5 文件加载序列数据的数据集"""
+    
+#     def __init__(self, h5_filepath: str, normalize_obs: bool = True):
+#         """
+#         Args:
+#             h5_filepath: H5 文件路径
+#             normalize_obs: 是否将观察归一化到 [0,1] (uint8 -> float32 / 255)
+#         """
+#         self.h5_filepath = h5_filepath
+#         self.normalize_obs = normalize_obs
+#         self.sequence_keys = []
+        
+#         # 获取所有序列的键名
+#         with h5py.File(h5_filepath, 'r') as f:
+#             self.sequence_keys = [key for key in f.keys() if key.startswith('sequence_')]
+#             # 按数字顺序排序
+#             self.sequence_keys.sort(key=lambda x: int(x.split('_')[1]))
+        
+#         print(f"从 {h5_filepath} 加载了 {len(self.sequence_keys)} 个序列")
+    
+#     def __len__(self) -> int:
+#         return len(self.sequence_keys)
+    
+#     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+#         """获取一个序列"""
+#         sequence_key = self.sequence_keys[idx]
+        
+#         with h5py.File(self.h5_filepath, 'r') as f:
+#             seq_group = f[sequence_key]
+            
+#             # 读取数据
+#             observations = seq_group['observations'][:]  # (33, 4, 84, 84)
+#             actions = seq_group['actions'][:]            # (32,)
+#             rewards = seq_group['rewards'][:]            # (32,)
+#             terminations = seq_group['terminations'][:]   # (32,)
+#             truncations = seq_group['truncations'][:]     # (32,)
+        
+#         # 转换为 torch tensors
+#         sample = {
+#             'observations': torch.from_numpy(observations),
+#             'actions': torch.from_numpy(actions).long(),
+#             'rewards': torch.from_numpy(rewards).float(),
+#             'terminations': torch.from_numpy(terminations),
+#             'truncations': torch.from_numpy(truncations),
+#             'sequence_idx': torch.tensor(idx)
+#         }
+        
+#         # 归一化观察 (uint8 -> float32 / 255)
+#         if self.normalize_obs:
+#             sample['observations'] = sample['observations'].float() / 255.0
+#         else:
+#             sample['observations'] = sample['observations'].float()
+        
+#         return sample
+    
+#     def get_sequence_info(self, idx: int = 0) -> Dict[str, Any]:
+#         """获取序列信息（用第一个序列作为示例）"""
+#         if idx >= len(self.sequence_keys):
+#             idx = 0
+            
+#         sample = self[idx]
+        
+#         info = {
+#             'total_sequences': len(self.sequence_keys),
+#             'sequence_length': sample['actions'].shape[0],  # 32
+#             'observation_shape': sample['observations'].shape,  # (33, 4, 84, 84)
+#             'action_shape': sample['actions'].shape,  # (32,)
+#             'reward_shape': sample['rewards'].shape,  # (32,)
+#             'data_types': {
+#                 'observations': sample['observations'].dtype,
+#                 'actions': sample['actions'].dtype,
+#                 'rewards': sample['rewards'].dtype,
+#                 'terminations': sample['terminations'].dtype,
+#                 'truncations': sample['truncations'].dtype,
+#             }
+#         }
+        
+#         return info
 
+# def load_h5_dataset(h5_filepath: str, normalize_obs: bool = True) -> H5SequenceDataset:
+#     """
+#     简单的函数来加载 H5 序列数据集
+    
+#     Args:
+#         h5_filepath: H5 文件路径
+#         normalize_obs: 是否归一化观察到 [0,1]
+        
+#     Returns:
+#         H5SequenceDataset 实例
+#     """
+#     return H5SequenceDataset(h5_filepath, normalize_obs)
+
+# # 使用示例
+# if __name__ == "__main__":
+#     # 使用你的文件
+#     h5_file = 'Data/worker_13.h5'
+    
+#     # 创建数据集
+#     dataset = load_h5_dataset(h5_file)
+    
+#     # 查看数据集信息
+#     print("数据集信息:")
+#     info = dataset.get_sequence_info()
+#     for key, value in info.items():
+#         print(f"  {key}: {value}")
+    
+#     # 测试获取一个序列
+#     print(f"\n测试加载第一个序列:")
+#     sample = dataset[0]
+#     for key, value in sample.items():
+#         print(f"  {key}: shape={value.shape}, dtype={value.dtype}")
+    
+#     # 创建 DataLoader
+#     from torch.utils.data import DataLoader
+    
+#     dataloader = DataLoader(
+#         dataset, 
+#         batch_size=8, 
+#         shuffle=True, 
+#         num_workers=0  # 使用 0 避免多进程问题
+#     )
+    
+#     print(f"\n测试 DataLoader:")
+#     for batch_idx, batch in enumerate(dataloader):
+#         print(f"Batch {batch_idx}:")
+#         for key, value in batch.items():
+#             print(f"  {key}: shape={value.shape}")
+#         if batch_idx == 0:  # 只显示第一个 batch
+#             break
 # Example usage
 if __name__ == "__main__":
     # Define games to use
@@ -357,20 +508,21 @@ if __name__ == "__main__":
         "atari/berzerk/expert-v0", "atari/assault/expert-v0", 
         "atari/defender/expert-v0", "atari/bowling/expert-v0", 
         "atari/montezumarevenge/expert-v0", "atari/stargunner/expert-v0", 
-        "atari/privateeye/expert-v0", "atari/seaquest/expert-v0", "atari/gravitar/expert-v0"]
-    train_game_list = all_game_list[:30]  # Use first 30 games for training
-    # Create dataset
+        "atari/privateeye/expert-v0", "atari/seaquest/expert-v0", "atari/gravitar/expert-v0"]   # Create dataset
+    nums_train_games = 1
     num_steps = 32  # Number of steps in each sequence
-    overlap=16,
-    num_seq_per_game=100, 
-    save_path = f'../Data/dataset_games{len(train_game_list)}_per{num_seq_per_game}_seq{num_steps}.h5'
+    overlap=16
+    num_seq_per_game=100
+    # train_game_list = all_game_list[:nums_train_games]  # Use first 30 games for training
+    train_game_list = ["atari/alien/expert-v0"]
+    save_path = 'test.h5'
 
     dataset = D4RLSequentialDataset(
         game_list=train_game_list,
-        num_steps=32,
-        overlap=16,
-        num_seq_per_game=100,      # Create dataset, extract 1000 sequences per game
-        save_path='/Users/feisong/Desktop/self-experience/code/PRM_v2/Data/d4rl_sequential_dataset.h5'
+        num_steps=num_steps,
+        overlap=overlap,
+        num_seq_per_game=num_seq_per_game,      # Create dataset, extract 1000 sequences per game
+        save_path=save_path
     )
     
     # Print statistics
