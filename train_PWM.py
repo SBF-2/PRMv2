@@ -61,7 +61,12 @@ def get_config(config_name: str = "normal") -> Dict[str, Any]:
 # ==============================================================================
 # 2. 日志与数据加载 (与之前版本相同)
 # ==============================================================================
-def setup_logger(log_file='training.log'):
+def setup_logger(args):
+    # 输出文件夹路径
+    output_path = os.path.join(args.output_dir, args.save_prefix)
+    os.makedirs(output_path, exist_ok=True)
+    # log文件路径
+    log_file = os.path.join(output_path, args.log_file)
     logger = logging.getLogger('PWM_Training'); logger.setLevel(logging.INFO)
     if logger.hasHandlers(): return logger
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -158,7 +163,8 @@ def validate_epoch(rank, ddp_model, val_loader):
     return {}
 
 def worker_fn(rank, world_size, args):
-    if rank == 0: logger = setup_logger(args.log_file)
+    if rank == 0: 
+        logger = setup_logger(args)
     setup(rank, world_size)
     
     # --- 初始化 (日志、配置、数据) ---
@@ -171,6 +177,13 @@ def worker_fn(rank, world_size, args):
     full_dataset = create_multih5_dataset(args.data_dir)
     val_size = int(len(full_dataset) * args.val_split)
     train_size = len(full_dataset) - val_size
+
+    # info计入数据量信息
+    logger.info(f"{"*"*20} dataset:{len(full_dataset)} sequences {"*"*20}")
+    logger.info(f"{"*"*20} Train-dataset:{train_size} sequences {"*"*20}")
+    logger.info(f"{"*"*20} val-dataset:{len(val_size)} sequences {"*"*20}")
+    
+    # 分割数据集
     train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42))
     
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
@@ -190,10 +203,22 @@ def worker_fn(rank, world_size, args):
     if rank == 0:
         logger.info(f"Model Initialized. Total Trainable Params: {sum(p.numel() for p in ddp_model.parameters() if p.requires_grad):,}")
         best_eval_loss = float('inf')
+        # ...
+        # 1. 定义输出目录的完整路径
+        output_path = os.path.join(args.output_dir, args.save_prefix)
+
+        # 2. 【核心】创建目录，如果它不存在的话
+        # os.makedirs 会自动创建所有必需的父目录
+        # exist_ok=True 表示如果目录已经存在，则不要抛出错误
+        os.makedirs(output_path, exist_ok=True)
         
+        # 3. 文件地址
+        train_csv_path = os.path.join(output_path, 'train_log.csv')
+        eval_csv_path = os.path.join(output_path, 'eval_log.csv')
         # 打开CSV文件并创建写入器
-        train_csv_file = open(f'{args.output_dir}/{args.save_prefix}/train_log.csv', 'w', newline='')
-        eval_csv_file = open(f'{args.save_prefix}/eval_log.csv', 'w', newline='')
+        train_csv_file = open(train_csv_path, 'w', newline='')
+        eval_csv_file = open(eval_csv_path, 'w', newline='')
+
         train_csv_writer = csv.writer(train_csv_file)
         eval_csv_writer = csv.writer(eval_csv_file)
         train_header_written, eval_header_written = False, False

@@ -487,16 +487,19 @@ class PWM(nn.Module):
             diversity_penalty = pred_batch_var / denominator
         
         # 记录到metrics中
+            metrics['var_predicted_seq'] = pred_batch_var
+            metrics['var_target_batch'] = target_batch_var
             metrics['diversity_penalty'] = diversity_penalty
             total_loss += self.variance_weight * diversity_penalty
         metrics['total_loss'] = total_loss
+
         return metrics
 
     @torch.no_grad()
     def eval_on_batch(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> Dict[str, Any]:
         """Performs a single evaluation step on a batch of data."""
         self.eval()
-        observations, actions = batch
+        observations, actions = batch['observations'], batch['actions']
         
         results = self.forward(observations, actions)
         predicted, target = results['predicted'], results['target']
